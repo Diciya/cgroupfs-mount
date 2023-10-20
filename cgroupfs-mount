@@ -24,22 +24,41 @@ if [ ! -d /sys/fs/cgroup ]; then
 	exit 0
 fi
 
-# mount /sys/fs/cgroup if not already done
-if ! mountpoint -q /sys/fs/cgroup; then
-	mount -t tmpfs -o uid=0,gid=0,mode=0755 cgroup /sys/fs/cgroup
+# Check if the system supports Cgroup2
+if [ -e /proc/cgroups ]; then
+    if grep -q "cgroup2" /proc/cgroups; then
+        CGROUP2_SUPPORTED=1
+    else
+        CGROUP2_SUPPORTED=0
+    fi
+else
+    CGROUP2_SUPPORTED=0
 fi
 
-cd /sys/fs/cgroup
+# Mount Cgroup2 if supported
+if [ "$CGROUP2_SUPPORTED" -eq 1 ]; then
+    # Mount Cgroup2
+    if ! mountpoint -q /sys/fs/cgroup/unified; then
+        mount -t cgroup2 unified /sys/fs/cgroup/unified
+    fi
+else
+    # Mount Cgroup (legacy)
+    if ! mountpoint -q /sys/fs/cgroup; then
+        mount -t tmpfs -o uid=0,gid=0,mode=0755 cgroup /sys/fs/cgroup
+    fi
 
-# get/mount list of enabled cgroup controllers
-for sys in $(awk '!/^#/ { if ($4 == 1) print $1 }' /proc/cgroups); do
-	mkdir -p $sys
-	if ! mountpoint -q $sys; then
-		if ! mount -n -t cgroup -o $sys cgroup $sys; then
-			rmdir $sys || true
-		fi
-	fi
-done
+    cd /sys/fs/cgroup
+
+    # This section is not needed for Cgroup2
+    for sys in $(awk '!/^#/ { if ($4 == 1) print $1 }' /proc/cgroups); do
+        mkdir -p $sys
+        if ! mountpoint -q $sys; then
+            if ! mount -n -t cgroup -o $sys cgroup $sys; then
+                rmdir $sys || true
+            fi
+        fi
+    done
+fi
 
 # example /proc/cgroups:
 #  #subsys_name	hierarchy	num_cgroups	enabled
@@ -54,8 +73,9 @@ done
 # enable cgroups memory hierarchy, like systemd does (and lxc/docker desires)
 # https://github.com/systemd/systemd/blob/v245/src/core/cgroup.c#L2983
 # https://bugs.debian.org/940713
-if [ -e /sys/fs/cgroup/memory/memory.use_hierarchy ]; then
-	echo 1 > /sys/fs/cgroup/memory/memory.use_hierarchy
+# Enable Cgroup2 memory hierarchy (if available)
+if [ "$CGROUP2_SUPPORTED" -eq 1 ] && [ -e /sys/fs/cgroup/unified/memory.use_hierarchy ]; then
+    echo 1 > /sys/fs/cgroup/unified/memory.use_hierarchy
 fi
 
 exit 0
