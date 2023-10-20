@@ -25,8 +25,8 @@ if [ ! -d /sys/fs/cgroup ]; then
 fi
 
 # Check if the system supports Cgroup2
-if [ -e /proc/cgroups ]; then
-    if grep -q "cgroup2" /proc/cgroups; then
+if [ -e /proc/filesystems ]; then
+    if grep -q "cgroup2" /proc/filesystems; then
         CGROUP2_SUPPORTED=1
     else
         CGROUP2_SUPPORTED=0
